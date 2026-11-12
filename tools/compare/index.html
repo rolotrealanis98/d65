@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Display Compare</title>
+<style>
+  :root { --panel-bg: rgba(18,18,20,.92); --panel-fg: #e8e8ea; --muted: #9a9aa2; --line: rgba(255,255,255,.12); --accent: #6aa8ff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: default;
+    font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; }
+  .grid { display: grid; width: 100%; height: 100%; }
+  .cell { display: flex; align-items: flex-end; justify-content: flex-start; padding: 6px; font-size: 11px; }
+  #role { position: fixed; top: 10px; left: 12px; padding: 3px 8px; border-radius: 6px; background: var(--panel-bg);
+    color: var(--panel-fg); font-weight: 600; letter-spacing: .02em; }
+  #name { position: fixed; top: 10px; right: 12px; padding: 3px 8px; border-radius: 6px; background: var(--panel-bg); color: var(--panel-fg); }
+  #panel { position: fixed; right: 12px; bottom: 12px; width: 330px; max-height: calc(100% - 60px); overflow: auto;
+    background: var(--panel-bg); color: var(--panel-fg); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  #panel h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+  #panel section { border-top: 1px solid var(--line); padding-top: 9px; margin-top: 9px; }
+  .row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  .row label { width: 74px; color: var(--muted); }
+  .row output { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+  button, select, input[type=text] { font: inherit; color: var(--panel-fg); background: rgba(255,255,255,.08);
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; min-height: 26px; }
+  button:hover { background: rgba(255,255,255,.16); }
+  button.on { background: var(--accent); color: #000; border-color: var(--accent); }
+  select { width: 100%; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .muted { color: var(--muted); }
+  #msg { min-height: 18px; color: var(--accent); }
+  kbd { font: 11px ui-monospace, SFMono-Regular, monospace; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; }
+  .saves div { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
+  .saves span { flex: 1; font-variant-numeric: tabular-nums; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="role"></div>
+<div id="name"></div>
+<div id="panel">
+  <h2>Display compare <span class="muted">· ASUS is reference, only Innoview changes</span></h2>
+  <div class="row"><select id="pattern"></select></div>
+  <div class="row muted"><kbd>←</kbd><kbd>→</kbd> pattern · <kbd>H</kbd> panel · <kbd>L</kbd> labels · <kbd>F</kbd> full screen</div>
+
+  <section>
+    <div class="row"><label>Preset</label>
+      <button id="userPreset">User</button><button id="origPreset">6500K (original)</button></div>
+    <div class="row"><label>Red</label><button data-n="r:-1">−</button><output id="r"></output><button data-n="r:1">+</button><span class="muted"><kbd>R</kbd>/<kbd>⇧R</kbd></span></div>
+    <div class="row"><label>Green</label><button data-n="g:-1">−</button><output id="g"></output><button data-n="g:1">+</button><span class="muted"><kbd>G</kbd>/<kbd>⇧G</kbd></span></div>
+    <div class="row"><label>Blue</label><button data-n="b:-1">−</button><output id="b"></output><button data-n="b:1">+</button><span class="muted"><kbd>B</kbd>/<kbd>⇧B</kbd></span></div>
+    <div class="row"><label>Brightness</label><button data-n="bright:-2">−</button><output id="bright"></output><button data-n="bright:2">+</button><span class="muted"><kbd>[</kbd>/<kbd>]</kbd></span></div>
+  </section>
+
+  <section>
+    <div class="row"><label>A / B</label><button id="saveA">Save as A</button><button id="toggleAB">Show A ⇄ B</button></div>
+    <div class="row"><label>Showing</label><b id="showing"></b><span class="muted" id="abvals"></span></div>
+    <div class="row"><label>Auto flip</label>
+      <button data-flip="0">off</button><button data-flip="2">2 s</button><button data-flip="4">4 s</button></div>
+    <div class="row muted"><kbd>A</kbd> save A · <kbd>Space</kbd> flip A/B</div>
+  </section>
+
+  <section>
+    <div class="row"><input id="saveName" type="text" placeholder="name this setting"><button id="save">Save</button></div>
+    <div class="saves" id="saves"></div>
+  </section>
+  <div id="msg"></div>
+</div>
+
+<script>
+const ROLE = (new URLSearchParams(location.search).get("role") || "display").toLowerCase();
+const ROLE_LABEL = { asus: "ASUS · reference", innoview: "Innoview · adjusting" }[ROLE] || ROLE;
+
+const checker = ["#735244","#c29682","#627a9d","#576c43","#8580b1","#67bdaa","#d67e2c","#505ba6",
+  "#c15a63","#5e3c6c","#9dbc40","#e0a32e","#383d96","#469449","#af363c","#e7c71f",
+  "#bb5695","#0885a1","#f3f3f2","#c8c8c8","#a0a0a0","#7a7a79","#555555","#343434"];
+const skin = ["#ffdbc4","#f1c27d","#e0ac69","#c68642","#a46a3f","#8d5524","#6b3e1f","#4a2912"];
+const grey = p => { const v = Math.round(255 * p / 100); return `rgb(${v},${v},${v})`; };
+
+const PATTERNS = [
+  ["white", "White 100%", { bg: "#fff" }],
+  ["g80", "Gray 80%", { bg: grey(80) }], ["g60", "Gray 60%", { bg: grey(60) }],
+  ["g40", "Gray 40%", { bg: grey(40) }], ["g20", "Gray 20%", { bg: grey(20) }],
+  ["g10", "Gray 10%", { bg: grey(10) }], ["black", "Black", { bg: "#000" }],
+  ["steps", "Gray steps 0–100%", { grid: Array.from({ length: 21 }, (_, i) => grey(i * 5)), cols: 21, label: i => `${i * 5}` }],
+  ["darksteps", "Near-black steps 0–10%", { grid: Array.from({ length: 11 }, (_, i) => grey(i)), cols: 11, label: i => `${i}%` }],
+  ["ramp", "Gray ramp (smooth)", { bg: "linear-gradient(90deg,#000,#fff)" }],
+  ["red", "Red", { bg: "#f00" }], ["green", "Green", { bg: "#0f0" }], ["blue", "Blue", { bg: "#00f" }],
+  ["cyan", "Cyan", { bg: "#0ff" }], ["magenta", "Magenta", { bg: "#f0f" }], ["yellow", "Yellow", { bg: "#ff0" }],
+  ["checker", "ColorChecker (sRGB)", { grid: checker, cols: 6 }],
+  ["skin", "Skin tones", { grid: skin, cols: 4 }],
+  ["ui", "Light UI", { ui: "light" }], ["uidark", "Dark UI", { ui: "dark" }],
+];
+const byId = Object.fromEntries(PATTERNS.map(p => [p[0], p]));
+
+const $ = id => document.getElementById(id);
+let S = null;
+
+function post(body) {
+  return fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+function renderPattern() {
+  const stage = $("stage"); const p = byId[S.pattern] || PATTERNS[0]; const spec = p[2];
+  stage.innerHTML = ""; stage.style.background = spec.bg || "#000";
+  if (spec.grid) {
+    const g = document.createElement("div"); g.className = "grid";
+    g.style.gridTemplateColumns = `repeat(${spec.cols},1fr)`;
+    spec.grid.forEach((c, i) => {
+      const d = document.createElement("div"); d.className = "cell"; d.style.background = c;
+      if (S.labels && spec.label) { d.textContent = spec.label(i); d.style.color = i < spec.grid.length / 2 ? "#888" : "#444"; }
+      g.appendChild(d);
+    });
+    stage.appendChild(g);
+  }
+  if (spec.ui) stage.appendChild(uiMock(spec.ui));
+}
+
+function uiMock(mode) {
+  const dark = mode === "dark";
+  const c = dark ? { bg: "#1e1e1e", side: "#262626", card: "#2c2c2e", text: "#f2f2f2", sub: "#9a9a9a", line: "#3a3a3c" }
+                 : { bg: "#ffffff", side: "#f5f5f7", card: "#fbfbfd", text: "#1d1d1f", sub: "#6e6e73", line: "#e5e5ea" };
+  const w = document.createElement("div");
+  w.style.cssText = `position:absolute;inset:0;display:grid;grid-template-columns:22% 1fr;background:${c.bg};color:${c.text};font:16px -apple-system,system-ui`;
+  w.innerHTML = `
+    <div style="background:${c.side};border-right:1px solid ${c.line};padding:28px 18px">
+      ${["Inbox", "Drafts", "Sent", "Archive", "Trash"].map((t, i) => `<div style="padding:8px 10px;border-radius:8px;margin:2px 0;${i === 0 ? "background:#0a84ff;color:#fff" : ""}">${t}</div>`).join("")}
+    </div>
+    <div style="padding:36px 44px">
+      <div style="font-size:28px;font-weight:700;margin-bottom:6px">Release notes</div>
+      <div style="color:${c.sub};margin-bottom:24px">Neutral grays, an accent blue, and status colors for comparing UI rendering.</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        ${["#0a84ff", "#30d158", "#ff9f0a", "#ff453a", "#bf5af2", "#64d2ff"].map(k => `
+          <div style="background:${c.card};border:1px solid ${c.line};border-radius:14px;padding:18px">
+            <div style="width:44px;height:44px;border-radius:10px;background:${k};margin-bottom:12px"></div>
+            <div style="font-weight:600">${k}</div><div style="color:${c.sub};font-size:14px">Sample card</div></div>`).join("")}
+      </div>
+    </div>`;
+  return w;
+}
+
+function renderPanel() {
+  const iv = S.innoview || {};
+  for (const k of ["r", "g", "b", "bright"]) $(k).textContent = iv[k] ?? "–";
+  $("userPreset").classList.toggle("on", iv.preset === 11);
+  $("origPreset").classList.toggle("on", iv.preset === 5);
+  $("showing").textContent = S.showing;
+  const fmt = s => s ? `${s.preset === 11 ? "User" : "6500K"} ${s.r}/${s.g}/${s.b} · br ${s.bright}` : "—";
+  $("abvals").textContent = ` A: ${fmt(S.A)}  B: ${fmt(S.B)}`;
+  document.querySelectorAll("[data-flip]").forEach(b => b.classList.toggle("on", String(S.flip || 0) === b.dataset.flip));
+  $("saves").innerHTML = S.saves.map((s, i) =>
+    `<div><span>${s.name} · ${s.preset === 11 ? "User" : "6500K"} ${s.r}/${s.g}/${s.b} br ${s.bright}</span>
+      <button data-load="${i}">Load</button><button data-del="${i}">✕</button></div>`).join("") || `<span class="muted">No saved settings</span>`;
+  $("msg").textContent = S.busy ? "applying to Innoview…" : (S.message || "");
+  $("pattern").value = S.pattern;
+  $("panel").classList.toggle("hidden", !S.panel);
+  $("role").classList.toggle("hidden", !S.labels);
+  $("name").classList.toggle("hidden", !S.labels);
+  $("name").textContent = `${(byId[S.pattern] || PATTERNS[0])[1]} · showing ${S.showing}`;
+}
+
+function render() { if (!S) return; renderPattern(); renderPanel(); }
+
+$("role").textContent = ROLE_LABEL;
+$("pattern").innerHTML = PATTERNS.map(p => `<option value="${p[0]}">${p[1]}</option>`).join("");
+$("pattern").onchange = e => setPattern(e.target.value);
+$("userPreset").onclick = () => post({ action: "set", values: { preset: 11 } });
+$("origPreset").onclick = () => post({ action: "original" });
+$("saveA").onclick = () => post({ action: "saveA" });
+$("toggleAB").onclick = () => post({ action: "toggleAB" });
+$("save").onclick = () => { post({ action: "save", name: $("saveName").value }); $("saveName").value = ""; };
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.dataset.n) { const [key, step] = t.dataset.n.split(":"); post({ action: "nudge", key, step: +step }); }
+  if (t.dataset.flip !== undefined) post({ action: "ui", flip: +t.dataset.flip });
+  if (t.dataset.load !== undefined) post({ action: "load", index: +t.dataset.load });
+  if (t.dataset.del !== undefined) post({ action: "delete", index: +t.dataset.del });
+});
+
+function setPattern(id) { S.pattern = id; renderPattern(); renderPanel(); post({ action: "ui", pattern: id }); }
+function step(dir) {
+  const i = PATTERNS.findIndex(p => p[0] === S.pattern);
+  setPattern(PATTERNS[(i + dir + PATTERNS.length) % PATTERNS.length][0]);
+}
+document.addEventListener("keydown", e => {
+  if (!S || e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey) return;
+  const k = e.key;
+  const nudge = { r: ["r", -1], R: ["r", 1], g: ["g", -1], G: ["g", 1], b: ["b", -1], B: ["b", 1], "[": ["bright", -2], "]": ["bright", 2] }[k];
+  if (nudge) post({ action: "nudge", key: nudge[0], step: nudge[1] });
+  else if (k === "ArrowRight" || k === "ArrowDown") step(1);
+  else if (k === "ArrowLeft" || k === "ArrowUp") step(-1);
+  else if (k === "h" || k === "H") post({ action: "ui", panel: !S.panel });
+  else if (k === "l" || k === "L") post({ action: "ui", labels: !S.labels });
+  else if (k === "a" || k === "A") post({ action: "saveA" });
+  else if (k === " ") post({ action: "toggleAB" });
+  else if (k === "f" || k === "F") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  else return;
+  e.preventDefault();
+});
+
+const es = new EventSource("/events");
+let lastPattern = null;
+es.onmessage = m => {
+  S = JSON.parse(m.data);
+  if (S.pattern !== lastPattern) { lastPattern = S.pattern; renderPattern(); }
+  renderPanel();
+};
+es.onerror = () => { $("msg").textContent = "lost connection to the compare server"; };
+</script>
+</body>
+</html>

@@ -55,6 +55,20 @@ across panel types (a 3×3 matrix per panel, fitted once against a known referen
 Innoview's Spyder white and the ASUS EDID primaries), or the white match is done by eye with the
 probe used only for gamma and brightness.
 
+### Per-display correction and eye match (2026-11-12)
+
+- Three-colour correction (`scripts/profile-tools/probe_correction.py`: each panel's known
+  primaries, measured luminances, no white reference) put **both** whites ~15 ΔE00 from D65 on the
+  green side. The ALS's luminance weighting per primary is off too, so even a per-panel matrix
+  can't make absolute or cross-panel whites trustworthy without a reference instrument.
+- The probe's suggested Innoview gains (R 0.94, G 1, B 0.72) were far off. The eye match landed
+  near neutral: **User preset, RGB gain 50/49/50, brightness 42** (Spyder profile still selected),
+  saved in `local/compare-saves.json`.
+- Innoview RGB gains only take effect in its User preset (0x14 = 11); in 6500K (5) they are
+  ignored but still read back as written.
+- `tools/compare/` is the matching tool that worked: one full-screen page per display, synced by
+  a local server that writes only to the secondary over DDC, with A/B flips and saves.
+
 ## Phase 1 — compare
 
 - `d65 compare <reference.json> <secondary.json>`: white xy/CCT, Y ratio, gamma, primaries, and
