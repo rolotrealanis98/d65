@@ -18,18 +18,41 @@ import os
     let isSimulated = false
     private let reader = ALSReader()
     private let stillness = StillnessMonitor()
+    private var holdTimer: Timer?
+    private var lastReading: ALSReader.Reading?
+    private var lastEventAt = Date.distantPast
+
+    /// The sensor reports on change only. On an OLED's true black (or any perfectly steady patch) it
+    /// can go quiet for seconds, which starved the black patch of samples. While quiet, the last
+    /// reading is repeated at the normal ~4 Hz cadence, for at most `maximumHold` seconds.
+    static let holdInterval: TimeInterval = 0.25
+    static let maximumHold: TimeInterval = 6
 
     func start(_ onSample: @escaping (MeasurementSample) -> Void) {
         stillness.start()
         reader.onEvent = { [weak self] reading in
+            guard let self else { return }
+            self.lastReading = reading
+            self.lastEventAt = Date()
             // Readings taken while the phone moves are dropped here, before they reach the Mac.
-            guard let self, self.stillness.isStable else { return }
+            guard self.stillness.isStable else { return }
             onSample(MeasurementSample(xyz: reading.xyz, lux: reading.lux, reportedCCT: reading.cct))
         }
         reader.start(matching: true)
+        holdTimer?.invalidate()
+        holdTimer = Timer.scheduledTimer(withTimeInterval: Self.holdInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let reading = self.lastReading, self.stillness.isStable else { return }
+                let quiet = Date().timeIntervalSince(self.lastEventAt)
+                guard quiet >= Self.holdInterval, quiet <= Self.maximumHold else { return }
+                onSample(MeasurementSample(xyz: reading.xyz, lux: reading.lux, reportedCCT: reading.cct))
+            }
+        }
     }
 
     func stop() {
+        holdTimer?.invalidate(); holdTimer = nil
+        lastReading = nil
         reader.stop()
         stillness.stop()
     }

@@ -370,6 +370,14 @@ struct D65CLI {
             let selected = flags.filter { arguments.contains($0.0) }
             guard selected.count <= 1 else { fail("choose only one calibration/test mode") }
             var config = CalibrationConfiguration(mode: selected.first?.1 ?? .measureOnly)
+            // A hand-held probe drops unsteady readings; a longer window still collects enough.
+            for (flag, keyPath) in [("--sampling", \CalibrationConfiguration.samplingSeconds),
+                                    ("--settling", \CalibrationConfiguration.settlingSeconds)] {
+                guard let index = arguments.firstIndex(of: flag) else { continue }
+                guard index + 1 < arguments.count, let seconds = Double(arguments[index + 1]),
+                      (0.1...30).contains(seconds) else { fail("\(flag) expects seconds between 0.1 and 30") }
+                config[keyPath: keyPath] = seconds
+            }
             if let index = arguments.firstIndex(of: "--metric") {
                 let names = ["ciede2000": WhiteErrorMetric.ciede2000, "cam16-ucs": .cam16ucs]
                 guard index + 1 < arguments.count, let metric = names[arguments[index + 1]] else {
